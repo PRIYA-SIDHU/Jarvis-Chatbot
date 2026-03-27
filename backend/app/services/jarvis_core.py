@@ -20,8 +20,7 @@ client = OpenAI(
     api_key=os.environ["HF_TOKEN"], 
 )
 
-API_KEY = "39a77652adf7043638f153373616a4f4"
-NEWS_API_KEY = "1a4d4aa72bd2499b89b7fe2469f96059"
+
 
 # ---------------- GREETING ----------------
 def get_greeting():
@@ -122,50 +121,7 @@ def handle_wikipedia(query):
         return get_short_wikipedia_summary(topic)
     return None
 
-# ---------------- NEWS ----------------
-def get_news(query=None, country="in", category=None):
-    try:
-        base_url = "https://newsapi.org/v2/top-headlines"
-        params = {"apiKey": NEWS_API_KEY, "country": country, "pageSize": 5, "language": "en"}
-        if category:
-            params["category"] = category
-        if query:
-            query = query.strip().lower()
-            if query not in ["news", "headlines"]:
-                params["q"] = query
-        response = requests.get(base_url, params=params)
-        data = response.json()
-        if data.get("status") != "ok":
-            return f"⚠️ Error fetching news: {data.get('message', 'Unknown error')}"
-        articles = data.get("articles", [])
-        if not articles:
-            return "Soorry, no recent news found."
-        headlines = []
-        for i, article in enumerate(articles[:5], start=1):
-            title = article.get("title", "No title")
-            source = article.get("source", {}).get("name", "Unknown Source")
-            headlines.append(f"{i}. {title} ({source})")
-        news_summary = "📰 Here are the top headlines:\n" + "\n".join(headlines)
-        return news_summary
-    except Exception as e:
-        return f"There was a problem getting the news: {e}"
 
-def handle_news(query):
-    query = query.lower()
-    if "news" in query or "headlines" in query:
-        if "sports" in query:
-            return get_news(category="sports")
-        elif "business" in query:
-            return get_news(category="business")
-        elif "technology" in query:
-            return get_news(category="technology")
-        elif "health" in query:
-            return get_news(category="health")
-        words = query.replace("news", "").strip()
-        if words:
-            return get_news(query=words)
-        return get_news()
-    return None
 
 # ---------------- MOVIES ----------------
 def get_movie_info(movie_name):
@@ -342,8 +298,7 @@ def run_jarvis(query):
     if response: return response
 
     # APIs
-    response = handle_news(query)
-    if response: return response
+    
     
     response = handle_movie(query)
     if response: return response
