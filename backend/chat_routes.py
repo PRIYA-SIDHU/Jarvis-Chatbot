@@ -3,15 +3,18 @@ from pydantic import BaseModel
 from bson import ObjectId
 from datetime import datetime
 from database import chat_collection
-from app.services.jarvis_core import run_jarvis
+from app.services.jarvis_core import run_jarvis, chat_sessions
 import os
 import csv
 import re
 
+
 router = APIRouter()
+
 
 CHAT_FOLDER = "chat"
 os.makedirs(CHAT_FOLDER, exist_ok=True)
+
 
 
 class ChatMessageRequest(BaseModel):
@@ -19,8 +22,10 @@ class ChatMessageRequest(BaseModel):
     chat_id: str | None = None
 
 
+
 class NewChatRequest(BaseModel):
     title: str = "New Chat"
+
 
 
 def safe_filename(name: str) -> str:
@@ -30,9 +35,11 @@ def safe_filename(name: str) -> str:
     return name[:80] if name else "New Chat"
 
 
+
 def csv_path_from_title_and_id(title: str, chat_id: str) -> str:
     safe_title = safe_filename(title)
     return os.path.join(CHAT_FOLDER, f"{safe_title}_{chat_id}.csv")
+
 
 
 def write_chat_csv(chat):
@@ -40,11 +47,13 @@ def write_chat_csv(chat):
     title = chat.get("title", "New Chat")
     file_path = csv_path_from_title_and_id(title, chat_id)
 
+
     for file_name in os.listdir(CHAT_FOLDER):
         if file_name.endswith(f"_{chat_id}.csv"):
             old_path = os.path.join(CHAT_FOLDER, file_name)
             if old_path != file_path and os.path.exists(old_path):
                 os.remove(old_path)
+
 
     with open(file_path, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
@@ -52,7 +61,9 @@ def write_chat_csv(chat):
         for msg in chat.get("messages", []):
             writer.writerow([msg.get("role", ""), msg.get("text", "")])
 
+
     return file_path
+
 
 
 def delete_chat_csv(chat):
@@ -62,6 +73,7 @@ def delete_chat_csv(chat):
             file_path = os.path.join(CHAT_FOLDER, file_name)
             if os.path.exists(file_path):
                 os.remove(file_path)
+
 
 
 def serialize_chat(chat):
@@ -74,10 +86,12 @@ def serialize_chat(chat):
     }
 
 
+
 @router.get("/chats")
 async def get_all_chats():
     chats = await chat_collection.find().sort("updated_at", -1).to_list(length=200)
     return [serialize_chat(chat) for chat in chats]
+
 
 
 @router.post("/chats/new")
@@ -97,16 +111,20 @@ async def create_new_chat(data: NewChatRequest):
     return serialize_chat(created_chat)
 
 
+
 @router.get("/chats/{chat_id}")
 async def get_chat(chat_id: str):
     if not ObjectId.is_valid(chat_id):
         raise HTTPException(status_code=400, detail="Invalid chat ID")
 
+
     chat = await chat_collection.find_one({"_id": ObjectId(chat_id)})
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+
     return serialize_chat(chat)
+
 
 
 @router.delete("/chats/{chat_id}")
@@ -114,17 +132,26 @@ async def delete_chat(chat_id: str):
     if not ObjectId.is_valid(chat_id):
         raise HTTPException(status_code=400, detail="Invalid chat ID")
 
+
     chat = await chat_collection.find_one({"_id": ObjectId(chat_id)})
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+
     delete_chat_csv(chat)
+
 
     result = await chat_collection.delete_one({"_id": ObjectId(chat_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+
+    if chat_id in chat_sessions:
+        del chat_sessions[chat_id]
+
+
     return {"success": True}
+
 
 
 @router.post("/chat")
@@ -132,11 +159,14 @@ async def send_message(data: ChatMessageRequest):
     if not data.message.strip():
         raise HTTPException(status_code=400, detail="Message is required")
 
+
     now = datetime.utcnow().isoformat()
+
 
     if data.chat_id:
         if not ObjectId.is_valid(data.chat_id):
             raise HTTPException(status_code=400, detail="Invalid chat ID")
+
 
         chat = await chat_collection.find_one({"_id": ObjectId(data.chat_id)})
         if not chat:
@@ -153,16 +183,20 @@ async def send_message(data: ChatMessageRequest):
         result = await chat_collection.insert_one(new_chat)
         chat = await chat_collection.find_one({"_id": result.inserted_id})
 
-    bot_reply = run_jarvis(data.message)
+
+    bot_reply = run_jarvis(data.message, str(chat["_id"]))
+
 
     updated_messages = chat["messages"] + [
         {"role": "user", "text": data.message},
         {"role": "bot", "text": bot_reply},
     ]
 
+
     updated_title = chat.get("title", "New Chat")
     if updated_title == "New Chat":
         updated_title = data.message[:30] + ("..." if len(data.message) > 30 else "")
+
 
     await chat_collection.update_one(
         {"_id": chat["_id"]},
@@ -175,8 +209,10 @@ async def send_message(data: ChatMessageRequest):
         }
     )
 
+
     updated_chat = await chat_collection.find_one({"_id": chat["_id"]})
     write_chat_csv(updated_chat)
+
 
     return {
         "chat_id": str(updated_chat["_id"]),

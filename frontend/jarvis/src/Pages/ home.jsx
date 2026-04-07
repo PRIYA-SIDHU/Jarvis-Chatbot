@@ -11,8 +11,8 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hoveredChatId, setHoveredChatId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  
-  // ✅ NEW: ChatGPT-style delete modal
+
+  // ✅ ChatGPT-style delete modal
   const [deleteModal, setDeleteModal] = useState({ show: false, chatId: null });
 
   useEffect(() => {
@@ -29,8 +29,11 @@ export default function Home() {
         const firstChat = data[0];
         setCurrentChatId(firstChat.id);
         setMessages(
-          (firstChat.messages || [{ role: "bot", text: "Hello, I am Jarvis. How can I assist you?" }])
-            .map(msg => ({ ...msg, skipTyping: true }))
+          (
+            firstChat.messages || [
+              { role: "bot", text: "Hello, I am Jarvis. How can I assist you?" },
+            ]
+          ).map((msg) => ({ ...msg, skipTyping: true }))
         );
       }
     } catch (e) {
@@ -39,7 +42,7 @@ export default function Home() {
     }
   };
 
-  // ✅ FIXED: ChatGPT-style delete with beautiful modal
+  // ✅ Delete modal handlers
   const showDeleteModal = (chatId) => {
     setDeleteModal({ show: true, chatId });
   };
@@ -50,33 +53,45 @@ export default function Home() {
 
   const confirmDeleteChat = async () => {
     const chatId = deleteModal.chatId;
+    if (!chatId) return;
+
     setIsLoading(true);
     try {
-      await fetch(`${API}/chats/${chatId}`, {
-        method: "DELETE"
+      const res = await fetch(`${API}/chats/${chatId}`, {
+        method: "DELETE",
       });
 
-      const newChats = chats.filter(chat => chat.id !== chatId);
+      if (!res.ok) {
+        throw new Error("Delete failed");
+      }
+
+      const newChats = chats.filter((chat) => chat.id !== chatId);
       setChats(newChats);
+      setHoveredChatId(null);
 
       if (currentChatId === chatId) {
         if (newChats.length > 0) {
           const nextChat = newChats[0];
           setCurrentChatId(nextChat.id);
           setMessages(
-            (nextChat.messages || [{ role: "bot", text: "Hello, I am Jarvis. How can I assist you?" }])
-              .map(msg => ({ ...msg, skipTyping: true }))
+            (
+              nextChat.messages || [
+                { role: "bot", text: "Hello, I am Jarvis. How can I assist you?" },
+              ]
+            ).map((msg) => ({ ...msg, skipTyping: true }))
           );
         } else {
           setCurrentChatId(null);
           setMessages([]);
-          createNewChat();
+          hideDeleteModal();
+          await createNewChat();
+          return;
         }
       }
-      
+
       hideDeleteModal();
     } catch (e) {
-      console.log("Delete failed");
+      console.log("Delete failed", e);
       alert("Failed to delete chat");
     } finally {
       setIsLoading(false);
@@ -89,7 +104,7 @@ export default function Home() {
       const res = await fetch(`${API}/chats/${chatId}`);
       const chat = await res.json();
 
-      setMessages((chat.messages || []).map(msg => ({ ...msg, skipTyping: true })));
+      setMessages((chat.messages || []).map((msg) => ({ ...msg, skipTyping: true })));
       setCurrentChatId(chatId);
       setSidebarOpen(false);
     } catch (e) {
@@ -105,13 +120,15 @@ export default function Home() {
       const res = await fetch(`${API}/chats/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat" })
+        body: JSON.stringify({ title: "New Chat" }),
       });
 
       const newChat = await res.json();
-      setChats([newChat, ...chats]);
-      setMessages(newChat.messages.map(msg => ({ ...msg, skipTyping: true })));
+
+      setChats((prev) => [newChat, ...prev]);
+      setMessages((newChat.messages || []).map((msg) => ({ ...msg, skipTyping: true })));
       setCurrentChatId(newChat.id);
+      setHoveredChatId(null);
       setSidebarOpen(false);
     } catch (e) {
       console.log("New chat failed");
@@ -121,7 +138,7 @@ export default function Home() {
   };
 
   const speak = (text) => {
-    if ('speechSynthesis' in window) {
+    if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
       const speech = new SpeechSynthesisUtterance(text);
       speech.lang = "en-IN";
@@ -136,7 +153,7 @@ export default function Home() {
 
     const userMsg = { role: "user", text, skipTyping: true };
     const loadingMsg = { role: "bot", text: "", loading: true };
-    setMessages(prev => [...prev, userMsg, loadingMsg]);
+    setMessages((prev) => [...prev, userMsg, loadingMsg]);
     setIsLoading(true);
 
     try {
@@ -145,44 +162,45 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          chat_id: currentChatId
-        })
+          chat_id: currentChatId,
+        }),
       });
 
       const data = await res.json();
 
-      setMessages(prev => {
+      setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
-          role: "bot", 
-          text: data.response || "No response", 
+          role: "bot",
+          text: data.response || "No response",
           loading: false,
-          skipTyping: isVoice
+          skipTyping: isVoice,
         };
         return updated;
       });
 
       if (data.chat) {
         setCurrentChatId(data.chat.id);
-        setChats(prevChats => {
-          const exists = prevChats.find(chat => chat.id === data.chat.id);
+        setChats((prevChats) => {
+          const exists = prevChats.find((chat) => chat.id === data.chat.id);
           if (exists) {
-            return prevChats.map(chat => chat.id === data.chat.id ? data.chat : chat);
+            return prevChats.map((chat) =>
+              chat.id === data.chat.id ? data.chat : chat
+            );
           }
           return [data.chat, ...prevChats];
         });
       }
 
       if (isVoice && data.response) speak(data.response);
-
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages(prev => {
+      setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { 
-          role: "bot", 
-          text: "Sorry, something went wrong! Please try again.", 
-          loading: false 
+        updated[updated.length - 1] = {
+          role: "bot",
+          text: "Sorry, something went wrong! Please try again.",
+          loading: false,
         };
         return updated;
       });
@@ -191,15 +209,13 @@ export default function Home() {
     }
   };
 
-  const currentChat = chats.find(c => c.id === currentChatId);
+  const currentChat = chats.find((c) => c.id === currentChatId);
 
   return (
     <>
-      {/* ✅ NEW: ChatGPT-style Delete Modal */}
       {deleteModal.show && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-2xl max-w-sm w-full mx-4 max-h-[90vh] overflow-hidden shadow-2xl">
-            {/* Header */}
             <div className="p-6 border-b border-slate-800">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse"></div>
@@ -207,17 +223,15 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Body */}
             <div className="p-6">
               <div className="text-slate-300 leading-relaxed">
-                Are you sure you want to delete this chat? 
+                Are you sure you want to delete this chat?
                 <span className="font-semibold text-red-400 block mt-1">
                   This action cannot be undone.
                 </span>
               </div>
             </div>
 
-            {/* Footer */}
             <div className="p-6 pt-0 border-t border-slate-800 flex gap-3 justify-end">
               <button
                 onClick={hideDeleteModal}
@@ -239,12 +253,14 @@ export default function Home() {
 
       <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-900 flex">
         {/* Sidebar */}
-        <div className={`
-          w-80 bg-slate-900/95 backdrop-blur-lg border-r border-slate-800
-          flex flex-col transition-all duration-300
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          lg:w-72
-        `}>
+        <div
+          className={`
+            w-80 bg-slate-900/95 backdrop-blur-lg border-r border-slate-800
+            flex flex-col transition-all duration-300
+            ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+            lg:w-72
+          `}
+        >
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-200">Chats</h2>
             <button
@@ -280,7 +296,6 @@ export default function Home() {
                     onMouseEnter={() => setHoveredChatId(chat.id)}
                     onMouseLeave={() => setHoveredChatId(null)}
                   >
-                    {/* ✅ FIXED: Delete button triggers beautiful modal */}
                     {isHovered && (
                       <button
                         onClick={(e) => {
@@ -300,17 +315,19 @@ export default function Home() {
                       disabled={isLoading || deleteModal.show}
                       className={`
                         w-full text-left p-3 rounded-lg transition-all text-sm relative
-                        ${isHovered ? 'pr-12 pl-4' : 'pr-4'}
-                        ${isCurrent
-                          ? 'bg-cyan-500/20 border-r-4 border-cyan-400 text-white'
-                          : 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                        ${isHovered ? "pr-12 pl-4" : "pr-4"}
+                        ${
+                          isCurrent
+                            ? "bg-cyan-500/20 border-r-4 border-cyan-400 text-white"
+                            : "hover:bg-slate-800 text-slate-300 hover:text-white"
                         }
-                        ${isLoading || deleteModal.show ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${isLoading || deleteModal.show ? "opacity-50 cursor-not-allowed" : ""}
                       `}
                     >
                       <div className="font-medium truncate">{chat.title}</div>
                       <div className="text-xs text-slate-500 truncate mt-1">
-                        {chat.messages?.[chat.messages.length - 1]?.text?.slice(0, 50) || "No messages"}...
+                        {chat.messages?.[chat.messages.length - 1]?.text?.slice(0, 50) || "No messages"}
+                        ...
                       </div>
                     </button>
                   </div>

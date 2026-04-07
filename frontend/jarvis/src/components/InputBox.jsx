@@ -1,14 +1,22 @@
 import { useState } from "react";
 
+
 export default function InputBox({ onSend }) {
   const [input, setInput] = useState("");
   const [listening, setListening] = useState(false);
 
+
   const handleSend = () => {
-    if (!input.trim()) return;
-    onSend(input, false);
+    const cleanInput = input
+      .replace(/\uFFFD/g, "")
+      .replace(/[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFC]/g, "")
+      .trim();
+
+    if (!cleanInput) return;
+    onSend(cleanInput, false);
     setInput("");
   };
+
 
   // ✅ NEW: Enter key support (Shift+Enter = new line)
   const handleKeyPress = (e) => {
@@ -18,22 +26,32 @@ export default function InputBox({ onSend }) {
     }
   };
 
+
   const handleVoice = () => {
     const recognition = new window.webkitSpeechRecognition();
+
 
     setListening(true);
     recognition.start();
 
+
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
-      onSend(transcript, true);
+      const cleanTranscript = transcript
+        .replace(/\uFFFD/g, "")
+        .replace(/[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFC]/g, "")
+        .trim();
+
+      onSend(cleanTranscript, true);
       setInput("");
     };
+
 
     recognition.onend = () => {
       setListening(false);
     };
   };
+
 
   return (
     <div className="p-4 border-t border-slate-800 flex gap-2 bg-slate-900 rounded-b-2xl">
@@ -47,12 +65,19 @@ export default function InputBox({ onSend }) {
       
       <input
         value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={handleKeyPress}  // ✅ ENTER KEY MAGIC!
+        onChange={(e) =>
+          setInput(
+            e.target.value
+              .replace(/\uFFFD/g, "")
+              .replace(/[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFC]/g, "")
+          )
+        }
+        onKeyDown={handleKeyPress}
         placeholder="Ask Jarvis anything... (Press Enter to send)"
         className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-cyan-500 text-white resize-none"
         rows="1"
       />
+
 
       <button
         onClick={handleSend}
