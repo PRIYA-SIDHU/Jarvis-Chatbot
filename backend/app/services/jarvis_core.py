@@ -10,56 +10,52 @@ import math
 from deep_translator import GoogleTranslator
 from openai import OpenAI
 
-load_dotenv()
 
+load_dotenv()
 client = OpenAI(
     base_url="https://router.huggingface.co/v1",
     api_key=os.environ["HF_TOKEN"],
 )
 
 
-# ---------------- RESPONSE CLEANUP ----------------
+class ChatSessionState:
+    def __init__(self):
+        self.quiz_state = {"active": False, "question": None, "answer": None, "awaiting_continue": False}
+        self.guess_state = {"active": False, "number": None, "attempts": 0, "max_attempts": 5, "awaiting_continue": False}
+
+
+chat_sessions = {}
+
+
+def get_chat_state(chat_id):
+    if chat_id not in chat_sessions:
+        chat_sessions[chat_id] = ChatSessionState()
+    return chat_sessions[chat_id]
+
+
 def clean_ai_response(text):
     if not text:
         return "Sorry, I could not generate a proper response."
 
     text = text.strip()
 
-    replacements = {
-        "Srry": "Sorry",
-        "srry": "Sorry",
-        "Iam": "I am",
-        "im": "I'm",
-        "i'm": "I'm",
-        "i": "I",
-        "iunderstand": "I understand",
-        "idont": "I don't",
-        "cant": "can't",
-        "dont": "don't",
-        "doesnt": "doesn't",
-        "wont": "won't",
-        "couldnt": "couldn't",
-        "shouldnt": "shouldn't",
-        "wouldnt": "wouldn't"
-    }
-
-    for old, new in replacements.items():
-        text = re.sub(rf"\b{re.escape(old)}\b", new, text)
+    text = re.sub(r'\bs+r+y+\b', 'Sorry', text, flags=re.IGNORECASE)
+    text = re.sub(r'\biam\b', 'I am', text, flags=re.IGNORECASE)
+    text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bidont\b", "I don't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcant\b", "can't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdont\b", "don't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdoesnt\b", "doesn't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwont\b", "won't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcouldnt\b", "couldn't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bshouldnt\b", "shouldn't", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwouldnt\b", "wouldn't", text, flags=re.IGNORECASE)
 
     text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
-    text = re.sub(r'([a-z])([A-Z][a-z])', r'\1 \2', text)
     text = re.sub(r'([a-zA-Z])(\d)', r'\1 \2', text)
     text = re.sub(r'(\d)([a-zA-Z])', r'\1 \2', text)
-
-    text = re.sub(r'\biunderstand\b', "I understand", text, flags=re.IGNORECASE)
-    text = re.sub(r'\biapologize\b', "I apologize", text, flags=re.IGNORECASE)
-    text = re.sub(r'\bletme\b', "let me", text, flags=re.IGNORECASE)
-    text = re.sub(r'\bheres\b', "Here's", text, flags=re.IGNORECASE)
-    text = re.sub(r'\bthats\b', "That's", text, flags=re.IGNORECASE)
-
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
-    text = re.sub(r'(?<!\n)\n(?!\n)', '\n', text)
 
     if text and text[0].islower():
         text = text[0].upper() + text[1:]
@@ -67,7 +63,6 @@ def clean_ai_response(text):
     return text.strip()
 
 
-# ---------------- GREETING ----------------
 def get_greeting():
     hour = datetime.datetime.now().hour
     if hour < 12:
@@ -86,7 +81,6 @@ def handle_greeting(query):
     return None
 
 
-# ---------------- QUOTE ----------------
 def get_random_quote():
     try:
         response = requests.get("https://zenquotes.io/api/random", timeout=10)
@@ -106,7 +100,6 @@ def handle_quote(query):
     return None
 
 
-# ---------------- HOLIDAYS ----------------
 def get_holidays(country_code="IN", year=None):
     if not year:
         year = datetime.date.today().year
@@ -141,7 +134,7 @@ def handle_holidays(query):
     return None
 
 
-# ---------------- WIKIPEDIA ----------------
+# Sirf ye function replace kar do, baaki same rakho
 def get_short_wikipedia_summary(topic, lang="en"):
     headers = {"User-Agent": "JarvisBot/1.0"}
     search_url = f"https://{lang}.wikipedia.org/w/api.php"
@@ -165,7 +158,9 @@ def get_short_wikipedia_summary(topic, lang="en"):
         summary_resp = requests.get(summary_url, headers=headers, timeout=10)
         summary_data = summary_resp.json()
         extract = summary_data.get("extract", "No summary available")
-        return f"📘 {title}\n\n{extract}"
+        # ✅ MAIN FIX - UTF-8 cleaning
+        extract = extract.encode('latin1').decode('utf-8', 'replace').strip()
+        return f"📖 {title}\n\n{extract}"
     except Exception:
         return "Error fetching Wikipedia data"
 
@@ -179,7 +174,6 @@ def handle_wikipedia(query):
     return None
 
 
-# ---------------- MOVIES ----------------
 def get_movie_info(movie_name):
     try:
         api_key = "3e5458a"
@@ -219,14 +213,12 @@ def handle_movie(query):
     return None
 
 
-# ---------------- QUIZ ----------------
 quiz_questions = {
     "What is the capital of France?": "paris",
     "How many legs does a spider have?": "8",
     "What planet is known as the red planet?": "mars",
     "What is 5 multiplied by 6?": "30"
 }
-quiz_state = {"active": False, "question": None, "answer": None, "awaiting_continue": False}
 
 
 def get_random_question():
@@ -234,43 +226,42 @@ def get_random_question():
     return q, a
 
 
-def handle_quiz(query):
-    global quiz_state
+def handle_quiz(query, chat_id):
+    state = get_chat_state(chat_id)
     query = query.lower().strip()
-    if "quiz" in query and not quiz_state["active"]:
+
+    if "quiz" in query and not state.quiz_state["active"]:
         q, a = get_random_question()
-        quiz_state.update({"active": True, "question": q, "answer": a, "awaiting_continue": False})
+        state.quiz_state.update({"active": True, "question": q, "answer": a, "awaiting_continue": False})
         return f"🎯 Quiz Time!\n\n{q}"
-    if quiz_state["active"]:
-        if not quiz_state["awaiting_continue"]:
-            if query == quiz_state["answer"]:
+
+    if state.quiz_state["active"]:
+        if not state.quiz_state["awaiting_continue"]:
+            if query == state.quiz_state["answer"]:
                 response = "✅ Correct!"
             else:
-                response = f"❌ Wrong! Correct answer was {quiz_state['answer']}"
-            quiz_state["awaiting_continue"] = True
+                response = f"❌ Wrong! Correct answer was {state.quiz_state['answer']}"
+            state.quiz_state["awaiting_continue"] = True
             return response + "\n\nDo you want another question? (yes/no)"
         else:
             if query in ["yes", "y"]:
                 q, a = get_random_question()
-                quiz_state.update({"question": q, "answer": a, "awaiting_continue": False})
+                state.quiz_state.update({"question": q, "answer": a, "awaiting_continue": False})
                 return f"🎯 Next Question:\n\n{q}"
             elif query in ["no", "n"]:
-                quiz_state = {"active": False, "question": None, "answer": None, "awaiting_continue": False}
+                state.quiz_state = {"active": False, "question": None, "answer": None, "awaiting_continue": False}
                 return "👍 Okay! See you next time for quiz."
             else:
                 return "Please answer with yes or no."
     return None
 
 
-# ---------------- GUESS THE NUMBER ----------------
-guess_state = {"active": False, "number": None, "attempts": 0, "max_attempts": 5, "awaiting_continue": False}
-
-
-def handle_guess_number(query):
-    global guess_state
+def handle_guess_number(query, chat_id):
+    state = get_chat_state(chat_id)
     query = query.lower().strip()
-    if "guess" in query and "number" in query and not guess_state["active"]:
-        guess_state = {
+
+    if "guess" in query and "number" in query and not state.guess_state["active"]:
+        state.guess_state = {
             "active": True,
             "number": random.randint(1, 50),
             "attempts": 0,
@@ -278,10 +269,11 @@ def handle_guess_number(query):
             "awaiting_continue": False
         }
         return "🎯 I have chosen a number between 1 and 50. Try to guess it! You have 5 chances"
-    if guess_state["active"]:
-        if guess_state["awaiting_continue"]:
+
+    if state.guess_state["active"]:
+        if state.guess_state["awaiting_continue"]:
             if query in ["yes", "y"]:
-                guess_state = {
+                state.guess_state = {
                     "active": True,
                     "number": random.randint(1, 50),
                     "attempts": 0,
@@ -290,31 +282,34 @@ def handle_guess_number(query):
                 }
                 return "🎯 New game started! Guess the number (1–50)."
             elif query in ["no", "n"]:
-                guess_state["active"] = False
+                state.guess_state["active"] = False
                 return "👍 Okay! See you next time."
             else:
                 return "Please answer with yes or no."
+
         try:
             guess = int(query)
         except Exception:
             return "Please enter a valid number."
-        guess_state["attempts"] += 1
-        if guess == guess_state["number"]:
-            guess_state["awaiting_continue"] = True
+
+        state.guess_state["attempts"] += 1
+        if guess == state.guess_state["number"]:
+            state.guess_state["awaiting_continue"] = True
             return "🎉 Correct! You guessed it right!\n\nPlay again? (yes/no)"
-        elif guess < guess_state["number"]:
+        elif guess < state.guess_state["number"]:
             msg = "Too low!"
         else:
             msg = "Too high!"
-        if guess_state["attempts"] >= guess_state["max_attempts"]:
-            num = guess_state["number"]
-            guess_state["awaiting_continue"] = True
+
+        if state.guess_state["attempts"] >= state.guess_state["max_attempts"]:
+            num = state.guess_state["number"]
+            state.guess_state["awaiting_continue"] = True
             return f"❌ Game over! The number was {num}.\n\nPlay again? (yes/no)"
+
         return msg
     return None
 
 
-# ---------------- CALCULATOR ----------------
 def calculate_expression(expression):
     try:
         expression = expression.lower()
@@ -341,7 +336,6 @@ def handle_calculator(query):
     return None
 
 
-# ---------------- TRANSLATION ----------------
 def translate_text(text, target_language="hi"):
     try:
         translated = GoogleTranslator(source="auto", target=target_language).translate(text)
@@ -361,19 +355,16 @@ def handle_translate(query):
     return None
 
 
-# ---------------- HUGGING FACE AI FALLBACK ----------------
 def handle_huggingface_ai(query):
     try:
         system_prompt = (
-            "You are Jarvis, a helpful AI assistant. "
-            "Always reply in clear English with proper spacing and grammar. "
-            "Never write words like 'Srry'; always write 'Sorry'. "
-            "If the user asks for code, provide complete working code inside proper code blocks. "
-            "Do not unnecessarily shorten answers. "
-            "Give detailed, practical, and direct answers. "
-            "If the task is programming-related, explain briefly and then provide code."
+            "You are Jarvis, a friendly yet professional AI assistant. "
+            "Respond clearly, naturally, and helpfully. "
+            "Use 0-1 emoji MAXIMUM per response. NO emoji spam. "
+            "Give best answer in a concise manner."
+            "Use emojis only when they fit naturally. "
+            "When useful, ask a short relevant follow-up question."
         )
-
         completion = client.chat.completions.create(
             model="mistralai/Mistral-7B-Instruct-v0.2:featherless-ai",
             messages=[
@@ -383,20 +374,18 @@ def handle_huggingface_ai(query):
             max_tokens=700,
             temperature=0.5
         )
-
         raw_text = completion.choices[0].message.content.strip()
         return clean_ai_response(raw_text)
     except Exception:
-        return "Sorry, the AI is unavailable right now. Please try again later."
+        return clean_ai_response("Sorry, the AI is unavailable right now. Please try again later.")
 
 
-# ---------------- MAIN BRAIN ----------------
-def run_jarvis(query):
-    response = handle_quiz(query)
+def run_jarvis(query, chat_id):
+    response = handle_quiz(query, chat_id)
     if response:
         return response
 
-    response = handle_guess_number(query)
+    response = handle_guess_number(query, chat_id)
     if response:
         return response
 
@@ -433,8 +422,9 @@ def run_jarvis(query):
 
 if __name__ == "__main__":
     while True:
+        chat_id = "console"
         user_input = input("You: ")
         if user_input.lower() in ["exit", "quit", "bye"]:
             print("Jarvis: Goodbye! 👋")
             break
-        print("Jarvis:", run_jarvis(user_input))
+        print("Jarvis:", run_jarvis(user_input, chat_id))
